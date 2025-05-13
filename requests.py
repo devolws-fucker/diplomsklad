@@ -1,5 +1,5 @@
-from sqlalchemy import select, update, delete, func, DateTime
-from models import async_session, User, Task, UserRole, OperationType
+from sqlalchemy import select
+from models import async_session, User, UserRole, OperationType
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
