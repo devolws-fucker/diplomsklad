@@ -2,6 +2,7 @@ from sqlalchemy import ForeignKey, String, BigInteger, Integer, Text, Enum, Date
 from sqlalchemy.orm import Mapped, DeclarativeBase, mapped_column, relationship
 from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
 import enum
+from datetime import datetime
 
 engine = create_async_engine(url='sqlite+aiosqlite:///db.sqlite3', echo=True)
 
@@ -29,10 +30,10 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     tg_id = mapped_column(BigInteger)
     username: Mapped[str] = mapped_column(String(50), nullable=True)
-    last_login: Mapped[DateTime] = mapped_column(nullable=True)
+    last_login: Mapped[datetime] = mapped_column(nullable=True)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.worker)
     is_active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[DateTime] = mapped_column(default=func.now())
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
 
 
 class Item(Base):
@@ -47,7 +48,7 @@ class Item(Base):
     description: Mapped[str] = mapped_column(Text, nullable=True)
     external_id: Mapped[str] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="stored")
-    updated_at: Mapped[DateTime] = mapped_column(default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(default=func.now(), onupdate=func.now())
     last_operation_id: Mapped[int] = mapped_column(ForeignKey("operations.id"), nullable=True)
 
 
@@ -70,7 +71,7 @@ class Operation(Base):
     type: Mapped[OperationType] = mapped_column(Enum(OperationType))
     quantity: Mapped[int] = mapped_column(default=1)
     note: Mapped[str] = mapped_column(Text, nullable=True)
-    created_at: Mapped[DateTime] = mapped_column(default=func.now())
+    created_at: Mapped[datetime] = mapped_column(default=func.now())
 
 
 class Sync_log(Base):
@@ -81,7 +82,7 @@ class Sync_log(Base):
     entity_id: Mapped[int]
     status: Mapped[str] = mapped_column(String(20))  # success | fail
     message: Mapped[str] = mapped_column(Text, nullable=True)
-    synced_at: Mapped[DateTime] = mapped_column(default=func.now())
+    synced_at: Mapped[datetime] = mapped_column(default=func.now())
     
 
 async def init_db():
