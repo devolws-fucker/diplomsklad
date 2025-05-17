@@ -1,83 +1,99 @@
-from sqlalchemy import select
-from models import async_session, User, UserRole, OperationType
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict
-from typing import List, Optional
+from enum import Enum
+from sqlalchemy import (
+    Column, Integer, String, DateTime, ForeignKey, Enum as PgEnum, Boolean
+)
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
+DATABASE_URL = "sqlite+aiosqlite:///./warehouse.db"
+
+engine = create_async_engine(DATABASE_URL, echo=False, future=True)
+async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+Base = declarative_base()
 
 
-class UserSchema(BaseModel):
-    id: int
-    tg_id: int
-    username: Optional[str]
-    last_login: Optional[datetime]
-    role: UserRole
-    is_active: bool
-    created_at: datetime
-    
-    model_config = ConfigDict(from_attributes=True)
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
-class ItemBaseSchema(BaseModel):
-    barcode: str
-    name: str
-    sku: Optional[str] = None
-    quantity: int
-    location_id: int
-    description: Optional[str] = None
-    external_id: Optional[str] = None
-    status: str = "stored"
-
-class ItemCreateSchema(ItemBaseSchema):
-    pass
-
-class ItemUpdateSchema(ItemBaseSchema):
-    pass
-
-class ItemSchema(ItemBaseSchema):
-    id: int
-    updated_at: datetime
-    last_operation_id: Optional[int]
-
-    model_config = ConfigDict(from_attributes=True)
+class OperationType(str, Enum):
+    receive = "receive"
+    ship = "ship"
+    move = "move"
+    inventory = "inventory"
 
 
-# === Location ===
-class LocationSchema(BaseModel):
-    id: int
-    name: str
-    code: str
-    description: Optional[str]
+class User(Base):
+    __tablename__ = "users"
 
-    model_config = ConfigDict(from_attributes=True)
+    id = Column(Integer, primary_key=True)
+    tg_id = Column(Integer, unique=True, nullable=False)
+    username = Column(String, nullable=True)
+    role = Column(String, default="worker")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, default=datetime.utcnow)
+
+    operations = relationship("Operation", back_populates="user")
 
 
-# === Operation ===
-class OperationCreateSchema(BaseModel):
-    user_id: int
-    item_id: int
-    location_id: int
-    type: OperationType
-    quantity: int
-    note: Optional[str] = None
+class Location(Base):
+    __tablename__ = "locations"
 
-class OperationSchema(OperationCreateSchema):
-    id: int
-    created_at: datetime
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    code = Column(String, unique=True, nullable=True)
+    description = Column(String, nullable=True)
 
-    model_config = ConfigDict(from_attributes=True)
+    items = relationship("Item", back_populates="location")
+    operations = relationship("Operation", back_populates="location")
 
-async def add_user(tg_id):
-    async with async_session() as session:
-        user = await session.scalar(select(User).where(User.tg_id == tg_id))
-        if user:
-            return user
-        
-        new_user = User(tg_id=tg_id)
-        session.add(new_user)
-        await session.commit()
-        await session.refresh(new_user)
-        return new_user
-    
-async def get_user_by_tg_id(tg_id: int):
-    async with async_session() as session:
-        return await session.scalar(select(User).where(User.tg_id == tg_id))
+
+class Item(Base):
+    __tablename__ = "items"
+
+    id = Column(Integer, primary_key=True)
+    barcode = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    sku = Column(String, nullable=True)
+    quantity = Column(Integer, default=0)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    status = Column(String, default="active")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    last_operation_id = Column(Integer, ForeignKey("operations.id"), nullable=True)
+
+    location = relationship("Location", back_populates="items")
+    operations = relationship("Operation", back_populates="item", foreign_keys="Operation.item_id")
+    last_operation = relationship("Operation", foreign_keys=[last_operation_id], post_update=True)
+
+
+class Operation(Base):
+    __tablename__ = "operations"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    item_id = Column(Integer, ForeignKey("items.id"))
+    location_id = Column(Integer, ForeignKey("locations.id"))
+    type = Column(PgEnum(OperationType), nullable=False)
+    quantity = Column(Integer, default=1)
+    note = Column(String, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="operations")
+    item = relationship("Item", back_populates="operations", foreign_keys=[item_id])
+    location = relationship("Location", back_populates="operations")
+
+
+class SyncLog(Base):
+    __tablename__ = "sync_logs"
+
+    id = Column(Integer, primary_key=True)
+    entity_type = Column(String, nullable=False)
+    entity_id = Column(Integer, nullable=False)
+    status = Column(String, default="success")
+    message = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
