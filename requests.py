@@ -1,99 +1,109 @@
-from datetime import datetime
-from enum import Enum
-from sqlalchemy import (
-    Column, Integer, String, DateTime, ForeignKey, Enum as PgEnum, Boolean
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from models import (
+    async_session, User, Item, Location, Operation,
+    OperationType, SyncLog
 )
-from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-
-DATABASE_URL = "sqlite+aiosqlite:///./warehouse.db"
-
-engine = create_async_engine(DATABASE_URL, echo=False, future=True)
-async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-Base = declarative_base()
 
 
-async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+async def fetch_user_by_tg_id(tg_id: int):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            raise Exception("Пользователь не найден")
+        return user
 
 
-class OperationType(str, Enum):
-    receive = "receive"
-    ship = "ship"
-    move = "move"
-    inventory = "inventory"
+async def get_items_by_user_tg(tg_id: int):
+    async with async_session() as session:
+        user = await session.scalar(select(User).where(User.tg_id == tg_id))
+        if not user:
+            user = User(tg_id=tg_id)
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+
+        items = await session.scalars(select(Item).where(Item.user_id == user.id))
+        return [serialize_item(item) for item in items]
 
 
-class User(Base):
-    __tablename__ = "users"
+async def scan_or_create_item(barcode: str):
+    async with async_session() as session:
+        item = await session.scalar(select(Item).where(Item.barcode == barcode))
+        if item:
+            return {"status": "exists", "item": serialize_item(item)}
 
-    id = Column(Integer, primary_key=True)
-    tg_id = Column(Integer, unique=True, nullable=False)
-    username = Column(String, nullable=True)
-    role = Column(String, default="worker")
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    last_login = Column(DateTime, default=datetime.utcnow)
-
-    operations = relationship("Operation", back_populates="user")
-
-
-class Location(Base):
-    __tablename__ = "locations"
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    code = Column(String, unique=True, nullable=True)
-    description = Column(String, nullable=True)
-
-    items = relationship("Item", back_populates="location")
-    operations = relationship("Operation", back_populates="location")
+        new_item = Item(barcode=barcode, name="Новый товар", quantity=0)
+        session.add(new_item)
+        await session.commit()
+        await session.refresh(new_item)
+        return {"status": "created", "item": serialize_item(new_item)}
 
 
-class Item(Base):
-    __tablename__ = "items"
-
-    id = Column(Integer, primary_key=True)
-    barcode = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
-    sku = Column(String, nullable=True)
-    quantity = Column(Integer, default=0)
-    location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
-    status = Column(String, default="active")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-    last_operation_id = Column(Integer, ForeignKey("operations.id"), nullable=True)
-
-    location = relationship("Location", back_populates="items")
-    operations = relationship("Operation", back_populates="item", foreign_keys="Operation.item_id")
-    last_operation = relationship("Operation", foreign_keys=[last_operation_id], post_update=True)
+async def fetch_all_locations():
+    async with async_session() as session:
+        locations = await session.scalars(select(Location))
+        return [{"id": loc.id, "name": loc.name, "code": loc.code, "description": loc.description} for loc in locations]
 
 
-class Operation(Base):
-    __tablename__ = "operations"
+async def process_operation(op):
+    async with async_session() as session:
+        item = await session.get(Item, op.item_id)
+        user = await session.get(User, op.user_id)
+        location = await session.get(Location, op.location_id)
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    item_id = Column(Integer, ForeignKey("items.id"))
-    location_id = Column(Integer, ForeignKey("locations.id"))
-    type = Column(PgEnum(OperationType), nullable=False)
-    quantity = Column(Integer, default=1)
-    note = Column(String, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+        if not item or not user or not location:
+            raise Exception("Ошибка: сущность не найдена")
 
-    user = relationship("User", back_populates="operations")
-    item = relationship("Item", back_populates="operations", foreign_keys=[item_id])
-    location = relationship("Location", back_populates="operations")
+        if op.type == "ship" and item.quantity < op.quantity:
+            raise Exception("Недостаточно товара")
+
+        operation = Operation(
+            user_id=user.id,
+            item_id=item.id,
+            location_id=location.id,
+            type=OperationType(op.type),
+            quantity=op.quantity,
+            note=op.note
+        )
+        session.add(operation)
+
+        if op.type == "receive":
+            item.quantity += op.quantity
+        elif op.type == "ship":
+            item.quantity -= op.quantity
+        elif op.type == "inventory":
+            item.quantity = op.quantity
+        elif op.type == "move":
+            item.location_id = location.id
+
+        item.last_operation_id = operation.id
+
+        await session.commit()
+        return {"status": "ok", "operation_id": operation.id}
 
 
-class SyncLog(Base):
-    __tablename__ = "sync_logs"
+async def log_sync(data):
+    async with async_session() as session:
+        log = SyncLog(
+            entity_type=data.entity_type,
+            entity_id=data.entity_id,
+            status="success",
+            message=data.message
+        )
+        session.add(log)
+        await session.commit()
+        return {"status": "synced"}
 
-    id = Column(Integer, primary_key=True)
-    entity_type = Column(String, nullable=False)
-    entity_id = Column(Integer, nullable=False)
-    status = Column(String, default="success")
-    message = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+
+def serialize_item(item):
+    return {
+        "id": item.id,
+        "barcode": item.barcode,
+        "name": item.name,
+        "sku": item.sku,
+        "quantity": item.quantity,
+        "location_id": item.location_id,
+        "status": item.status,
+        "updated_at": item.updated_at,
+    }
