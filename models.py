@@ -25,7 +25,7 @@ class OperationType(str, enum.Enum):
     ship = "ship"
     inventory = "inventory"
 
-class Operation(Base): 
+class Operation(Base):
     __tablename__ = "operations"
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
@@ -37,9 +37,9 @@ class Operation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="operations")
-    item: Mapped["Item"] = relationship(back_populates="operations")
+    item: Mapped["Item"] = relationship(back_populates="operations", foreign_keys=[item_id])
     location: Mapped["Location"] = relationship(back_populates="operations")
-
+    
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
