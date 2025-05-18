@@ -25,6 +25,20 @@ class OperationType(str, enum.Enum):
     ship = "ship"
     inventory = "inventory"
 
+class Operation(Base): 
+    __tablename__ = "operations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"))
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"))
+    type: Mapped[OperationType] = mapped_column(Enum(OperationType))
+    quantity: Mapped[int] = mapped_column(default=1)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    user: Mapped["User"] = relationship(back_populates="operations")
+    item: Mapped["Item"] = relationship(back_populates="operations")
+    location: Mapped["Location"] = relationship(back_populates="operations")
 
 class User(Base):
     __tablename__ = "users"
@@ -70,22 +84,6 @@ class Item(Base):
     location: Mapped["Location"] = relationship(back_populates="items")
     operations: Mapped[list["Operation"]] = relationship(back_populates="item", foreign_keys=["Operation.item_id"])
     last_operation: Mapped["Operation | None"] = relationship(foreign_keys=[last_operation_id], lazy="joined")
-
-
-class Operation(Base):
-    __tablename__ = "operations"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    item_id: Mapped[int] = mapped_column(ForeignKey("items.id"))
-    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id"))
-    type: Mapped[OperationType] = mapped_column(Enum(OperationType))
-    quantity: Mapped[int] = mapped_column(default=1)
-    note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-
-    user: Mapped["User"] = relationship(back_populates="operations")
-    item: Mapped["Item"] = relationship(back_populates="operations")
-    location: Mapped["Location"] = relationship(back_populates="operations")
 
 
 class SyncLog(Base):
