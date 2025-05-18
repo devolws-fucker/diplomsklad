@@ -68,7 +68,7 @@ class Item(Base):
 
     user: Mapped["User"] = relationship(back_populates="items")
     location: Mapped["Location"] = relationship(back_populates="items")
-    operations: Mapped[list["Operation"]] = relationship(back_populates="item")
+    operations: Mapped[list["Operation"]] = relationship(back_populates="item", foreign_keys=["Operation.item_id"])
     last_operation: Mapped["Operation | None"] = relationship(foreign_keys=[last_operation_id], lazy="joined")
 
 
