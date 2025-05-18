@@ -39,7 +39,7 @@ class Operation(Base):
     user: Mapped["User"] = relationship(back_populates="operations")
     item: Mapped["Item"] = relationship(back_populates="operations", foreign_keys=[item_id])
     location: Mapped["Location"] = relationship(back_populates="operations")
-    
+
 class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -82,7 +82,7 @@ class Item(Base):
 
     user: Mapped["User"] = relationship(back_populates="items")
     location: Mapped["Location"] = relationship(back_populates="items")
-    operations: Mapped[list["Operation"]] = relationship(back_populates="item", foreign_keys=["Operation.item_id"])
+    operations: Mapped[list["Operation"]] = relationship(back_populates="item", foreign_keys=[Operation.__table__.c.item_id])
     last_operation: Mapped["Operation | None"] = relationship(foreign_keys=[last_operation_id], lazy="joined")
 
 
