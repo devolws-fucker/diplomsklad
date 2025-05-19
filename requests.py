@@ -33,13 +33,8 @@ async def scan_or_create_item(barcode: str):
             item = await session.scalar(select(Item).where(Item.barcode == barcode))
             if item:
                 return {"status": "exists", "item": serialize_item(item)}
-
-            # !!! ВАЖНО: Здесь по-прежнему отсутствует установка location_id !!!
-            new_item = Item(barcode=barcode, name="Новый товар", quantity=0)
-            session.add(new_item)
-            await session.commit()
-            await session.refresh(new_item)
-            return {"status": "created", "item": serialize_item(new_item)}
+            else:
+                return {"status": "created", "item": {"barcode": barcode, "name": "Новый товар"}}
 
 async def fetch_all_locations():
     async with async_session() as session:
