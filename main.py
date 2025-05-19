@@ -79,6 +79,7 @@ async def sync_to_1c(data: SyncData):
 async def register_user(registration_data: UserRegistration):
     try:
         user = await rq.register_new_user(registration_data)
+        print(f"Возвращаемый объект user: {user}")
         return user
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
