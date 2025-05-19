@@ -78,8 +78,6 @@ async def sync_to_1c(data: SyncData):
 @app.post("/api/register")
 async def register_user(registration_data: UserRegistration):
     return await rq.register_new_user(registration_data)
-    
-
 
 @app.post("/api/check_admin_password")
 async def check_admin_password(password_data: dict):

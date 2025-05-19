@@ -96,7 +96,9 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
     use_external_session = bool(external_session)
     session = external_session if use_external_session else async_session()
     try:
-        async with session.begin():
+        if not use_external_session:
+            await session.begin()
+        try:
             existing_user = await session.scalar(select(User).where(User.tg_id == registration_data.tg_id))
             if existing_user:
                 raise Exception("Пользователь с таким Telegram ID уже зарегистрирован.")
@@ -116,7 +118,7 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
             await session.commit()
             await session.refresh(new_user)
 
-            print(f"Зарегистрирован новый пользователь: {new_user.__dict__}")  # Добавлено логирование
+            print(f"Зарегистрирован новый пользователь: {new_user.__dict__}")  # Логирование
 
             return {
                 "id": new_user.id,
@@ -129,12 +131,17 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
                 "is_active": new_user.is_active,
                 "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
             }
-    except Exception as e:
-        print(f"Ошибка при регистрации пользователя: {e}")  # Логирование ошибки
+        except Exception as e:
+            if not use_external_session:
+                await session.rollback()
+            print(f"Ошибка при регистрации пользователя: {e}")  # Логирование ошибки
+            raise
+        finally:
+            if not use_external_session:
+                await session.close()
+    except Exception as final_e:
+        print(f"Финальная ошибка в register_new_user: {final_e}")
         raise
-    finally:
-        if not use_external_session and session:
-            await session.close()
 
 def serialize_item(item: Item):
     return {
