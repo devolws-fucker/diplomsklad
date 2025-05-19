@@ -76,9 +76,9 @@ async def sync_to_1c(data: SyncData):
     return await rq.log_sync(data)
 
 @app.post("/api/register")
-async def register_user(registration_data: UserRegistration, session: AsyncSession = Depends(get_async_session)):
+async def register_user(registration_data: UserRegistration):
     try:
-        user = await rq.register_new_user(registration_data, session)
+        user = await rq.register_new_user(registration_data)
         return user
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
