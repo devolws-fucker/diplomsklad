@@ -81,11 +81,20 @@ async def register_user(registration_data: UserRegistration, session: AsyncSessi
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @app.post("/api/check_admin_password")
 async def check_admin_password(password_data: dict):
     password = password_data.get("password")
-    ADMIN_PASSWORD = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
-    if password == ADMIN_PASSWORD:
+    HARDCODED_ADMIN_PASSWORD = "11"
+    if password == HARDCODED_ADMIN_PASSWORD:
         return {"status": "ok"}
     else:
         return {"status": "error"}
+#@app.post("/api/check_admin_password")
+#async def check_admin_password(password_data: dict):
+#    password = password_data.get("password")
+#    ADMIN_PASSWORD = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
+#    if password == ADMIN_PASSWORD:
+#        return {"status": "ok"}
+#    else:
+#        return {"status": "error"}
