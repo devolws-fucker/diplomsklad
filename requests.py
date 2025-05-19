@@ -115,6 +115,7 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
 
             await session.commit()
             await session.refresh(new_user)
+
             return {
                 "id": new_user.id,
                 "tg_id": new_user.tg_id,
@@ -127,7 +128,7 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
                 "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
             }
     finally:
-        if not use_external_session:
+        if not use_external_session and session:
             await session.close()
 
 def serialize_item(item: Item):
