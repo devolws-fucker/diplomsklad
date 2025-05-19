@@ -77,13 +77,9 @@ async def sync_to_1c(data: SyncData):
 
 @app.post("/api/register")
 async def register_user(registration_data: UserRegistration):
-    try:
-        user = await rq.register_new_user(registration_data)
-        print(f"Возвращаемый объект user: {user}") 
-        return user
-    except Exception as e:
-        print(f"Ошибка при регистрации: {e}")  
-        raise HTTPException(status_code=400, detail=str(e))
+    user = await rq.register_new_user(registration_data)
+    return user
+    
 
 
 @app.post("/api/check_admin_password")
