@@ -112,6 +112,7 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
                 role=UserRole(registration_data.role),
             )
             session.add(new_user)
+
             await session.commit()
             await session.refresh(new_user)
             return {
