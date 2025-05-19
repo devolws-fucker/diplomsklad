@@ -7,6 +7,8 @@ import requests as rq
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_async_session
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 class ScanItem(BaseModel):
     barcode: str
@@ -85,16 +87,8 @@ async def register_user(registration_data: UserRegistration, session: AsyncSessi
 @app.post("/api/check_admin_password")
 async def check_admin_password(password_data: dict):
     password = password_data.get("password")
-    HARDCODED_ADMIN_PASSWORD = "11"
-    if password == HARDCODED_ADMIN_PASSWORD:
+    ADMIN_PASSWORD = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
+    if password == ADMIN_PASSWORD:
         return {"status": "ok"}
     else:
         return {"status": "error"}
-#@app.post("/api/check_admin_password")
-#async def check_admin_password(password_data: dict):
-#    password = password_data.get("password")
-#    ADMIN_PASSWORD = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
-#    if password == ADMIN_PASSWORD:
-#        return {"status": "ok"}
-#    else:
-#        return {"status": "error"}

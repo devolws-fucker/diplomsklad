@@ -6,6 +6,8 @@ from models import (
 )
 from database import async_session
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 async def fetch_user_by_tg_id(tg_id: int, session: AsyncSession):
     user = await session.scalar(select(User).where(User.tg_id == tg_id))
@@ -94,7 +96,7 @@ async def register_new_user(registration_data, session: AsyncSession):
         raise Exception("Пользователь с таким Telegram ID уже зарегистрирован.")
 
     if registration_data.role == "admin":
-        admin_password = "secret_admin_password"
+        admin_password = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
         if not admin_password or registration_data.admin_password != admin_password:
             raise Exception("Неверный пароль администратора.")
 
