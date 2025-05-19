@@ -76,8 +76,10 @@ async def sync_to_1c(data: SyncData):
     return await rq.log_sync(data)
 
 @app.post("/api/register")
-async def register_user(registration_data: UserRegistration):
-    return await rq.register_new_user(registration_data)
+async def register_user(
+    registration_data: UserRegistration, session: AsyncSession = Depends(get_async_session)
+):
+    return await rq.register_new_user(registration_data, session=session)
     
 
 

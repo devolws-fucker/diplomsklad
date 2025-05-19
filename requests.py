@@ -116,6 +116,8 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
             await session.commit()
             await session.refresh(new_user)
 
+            print(f"Зарегистрирован новый пользователь: {new_user.__dict__}")  # Добавлено логирование
+
             return {
                 "id": new_user.id,
                 "tg_id": new_user.tg_id,
@@ -127,6 +129,9 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
                 "is_active": new_user.is_active,
                 "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
             }
+    except Exception as e:
+        print(f"Ошибка при регистрации пользователя: {e}")  # Логирование ошибки
+        raise
     finally:
         if not use_external_session and session:
             await session.close()
