@@ -77,8 +77,7 @@ async def sync_to_1c(data: SyncData):
 
 @app.post("/api/register")
 async def register_user(registration_data: UserRegistration):
-    user = await rq.register_new_user(registration_data)
-    return user
+    return await rq.register_new_user(registration_data)
     
 
 
