@@ -7,6 +7,7 @@ import requests as rq
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_async_session
 import os
+from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -20,6 +21,16 @@ class OperationData(BaseModel):
     type: str
     quantity: int = 1
     note: str = ""
+
+class LocationCreate(BaseModel):
+    name: str
+    code: str
+    description: Optional[str] = None
+
+class LocationUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    description: Optional[str] = None
 
 class SyncData(BaseModel):
     entity_type: str
@@ -70,6 +81,25 @@ async def create_operation(op: OperationData):
 @app.get("/api/locations")
 async def get_locations():
     return await rq.fetch_all_locations()
+
+@app.post("/api/locations")
+async def create_location(location_data: LocationCreate):
+    return await rq.create_new_location(location_data)
+
+@app.put("/api/locations/{location_id}")
+async def update_location(location_id: int, location_data: LocationUpdate):
+    return await rq.update_existing_location(location_id, location_data)
+
+@app.delete("/api/locations/{location_id}")
+async def delete_location(location_id: int):
+    return await rq.delete_existing_location(location_id)
+
+@app.get("/api/locations/{location_id}")
+async def get_single_location(location_id: int, session: AsyncSession = Depends(get_async_session)):
+    location = await rq.fetch_location_by_id(location_id, session)
+    if not location:
+        raise HTTPException(status_code=404, detail="Локация не найдена")
+    return {"id": location.id, "name": location.name, "code": location.code, "description": location.description}
 
 @app.post("/api/sync")
 async def sync_to_1c(data: SyncData):

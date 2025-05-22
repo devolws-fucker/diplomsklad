@@ -1,5 +1,7 @@
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException
 from models import (
     User, Item, Location, Operation,
     OperationType, SyncLog, UserRole
@@ -35,6 +37,72 @@ async def scan_or_create_item(barcode: str):
                 return {"status": "exists", "item": serialize_item(item)}
             else:
                 return {"status": "created", "item": {"barcode": barcode, "name": "Новый товар"}}
+
+async def create_new_location(location_data):
+    async with async_session() as session:
+        async with session.begin():
+            # Проверяем на уникальность кода локации
+            existing_location = await session.scalar(
+                select(Location).where(Location.code == location_data.code)
+            )
+            if existing_location:
+                raise HTTPException(status_code=400, detail="Локация с таким кодом уже существует.")
+
+            new_location = Location(
+                name=location_data.name,
+                code=location_data.code,
+                description=location_data.description
+            )
+            session.add(new_location)
+            await session.commit()
+            await session.refresh(new_location)
+            return {"status": "ok", "location": {"id": new_location.id, "name": new_location.name, "code": new_location.code, "description": new_location.description}}
+
+async def update_existing_location(location_id: int, location_data):
+    async with async_session() as session:
+        async with session.begin():
+            location = await session.scalar(select(Location).where(Location.id == location_id))
+            if not location:
+                raise HTTPException(status_code=404, detail="Локация не найдена")
+
+            if location_data.code and location_data.code != location.code:
+                existing_location = await session.scalar(
+                    select(Location).where(Location.code == location_data.code, Location.id != location_id)
+                )
+                if existing_location:
+                    raise HTTPException(status_code=400, detail="Локация с таким кодом уже существует.")
+
+            if location_data.name is not None:
+                location.name = location_data.name
+            if location_data.code is not None:
+                location.code = location_data.code
+            if location_data.description is not None:
+                location.description = location_data.description
+
+            await session.commit()
+            await session.refresh(location)
+            return {"status": "ok", "location": {"id": location.id, "name": location.name, "code": location.code, "description": location.description}}
+
+async def delete_existing_location(location_id: int):
+    async with async_session() as session:
+        async with session.begin():
+            location = await session.scalar(select(Location).where(Location.id == location_id))
+            if not location:
+                raise HTTPException(status_code=404, detail="Локация не найдена")
+
+            associated_items = await session.scalar(select(func.count(Item.id)).where(Item.location_id == location_id))
+            associated_operations = await session.scalar(select(func.count(Operation.id)).where(Operation.location_id == location_id))
+
+            if associated_items > 0 or associated_operations > 0:
+                raise HTTPException(status_code=400, detail="Невозможно удалить локацию, так как с ней связаны товары или операции. Сначала переместите или удалите их.")
+            
+            await session.delete(location)
+            await session.commit()
+            return {"status": "ok", "message": f"Локация {location_id} удалена."}
+
+async def fetch_location_by_id(location_id: int, session: AsyncSession):
+    location = await session.scalar(select(Location).where(Location.id == location_id))
+    return location
 
 async def fetch_all_locations():
     async with async_session() as session:
