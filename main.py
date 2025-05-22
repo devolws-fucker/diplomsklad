@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends
+import logging
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from models import init_db, User, UserRole
@@ -10,6 +11,8 @@ import os
 from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class ScanItem(BaseModel):
     barcode: str
@@ -107,7 +110,14 @@ async def sync_to_1c(data: SyncData):
 
 @app.post("/api/register")
 async def register_user(registration_data: UserRegistration):
-    return await rq.register_new_user(registration_data)
+    try:
+        return await rq.register_new_user(registration_data.dict())
+    except HTTPException as e:
+        logger.error(f"Ошибка при регистрации пользователя (HTTPException): {e.detail}, Status: {e.status_code}")
+        raise e 
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при регистрации пользователя: {e}")
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
 
 @app.post("/api/check_admin_password")
 async def check_admin_password(password_data: dict):

@@ -2,6 +2,7 @@ from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
+import logging
 from models import (
     User, Item, Location, Operation,
     OperationType, SyncLog, UserRole
@@ -10,6 +11,7 @@ from database import async_session
 import os
 from dotenv import load_dotenv
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 async def fetch_user_by_tg_id(tg_id: int, session: AsyncSession):
     async with session.begin():
@@ -160,56 +162,41 @@ async def log_sync(data):
             await session.commit()
             return {"status": "synced"}
 
-async def register_new_user(registration_data, external_session: AsyncSession = None):
-    use_external_session = bool(external_session)
-    session = external_session if use_external_session else async_session()
-    try:
-        if not use_external_session:
-            await session.begin()
-        try:
-            existing_user = await session.scalar(select(User).where(User.tg_id == registration_data.tg_id))
-            if existing_user:
-                raise Exception("Пользователь с таким Telegram ID уже зарегистрирован.")
+async def register_new_user(registration_data: dict):
+    logger.info(f"Попытка регистрации нового пользователя: {registration_data.get('tg_id')}")
 
-            if registration_data.role == "admin":
-                admin_password = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
-                if not admin_password or registration_data.admin_password != admin_password:
-                    raise Exception("Неверный пароль администратора.")
+    async with async_session() as session:
+        existing_user = await session.execute(
+            select(User).where(User.tg_id == registration_data["tg_id"])
+        )
+        user = existing_user.scalar_one_or_none()
 
-            new_user = User(
-                tg_id=registration_data.tg_id,
-                username=registration_data.username,
-                role=UserRole(registration_data.role),
+        if user:
+            logger.warning(f"Пользователь с TG ID {registration_data['tg_id']} уже зарегистрирован.")
+            raise HTTPException(
+                status_code=409, 
+                detail="Пользователь с таким Telegram ID уже зарегистрирован."
             )
-            session.add(new_user)
 
-            await session.commit()
-            await session.refresh(new_user)
 
-            print(f"Зарегистрирован новый пользователь: {new_user.__dict__}")  # Логирование
+        hashed_password = None
+        if registration_data["role"] == UserRole.ADMIN and registration_data["admin_password"]:
+            hashed_password = registration_data["admin_password"] 
 
-            return {
-                "id": new_user.id,
-                "tg_id": new_user.tg_id,
-                "username": new_user.username,
-                "first_name": new_user.first_name,
-                "last_name": new_user.last_name,
-                "last_login": new_user.last_login,
-                "role": new_user.role.value,
-                "is_active": new_user.is_active,
-                "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
-            }
-        except Exception as e:
-            if not use_external_session:
-                await session.rollback()
-            print(f"Ошибка при регистрации пользователя: {e}")  # Логирование ошибки
-            raise
-        finally:
-            if not use_external_session:
-                await session.close()
-    except Exception as final_e:
-        print(f"Финальная ошибка в register_new_user: {final_e}")
-        raise
+        new_user = User(
+            tg_id=registration_data["tg_id"],
+            username=registration_data["username"],
+            role=registration_data["role"],
+            password_hash=hashed_password, 
+            last_login=func.now(),
+            created_at=func.now()
+        )
+        session.add(new_user)
+        await session.commit()
+        await session.refresh(new_user)
+
+        logger.info(f"Пользователь {new_user.username} (TG ID: {new_user.tg_id}) успешно зарегистрирован как {new_user.role.value}.")
+        return new_user.to_dict() # Возвращаем данные нового пользователя
 
 def serialize_item(item: Item):
     return {
