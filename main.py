@@ -8,7 +8,7 @@ import requests as rq
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_async_session
 import os
-from typing import Optional
+from typing import Optional, List
 from dotenv import load_dotenv
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -43,7 +43,7 @@ class SyncData(BaseModel):
 class UserRegistration(BaseModel):
     tg_id: int
     username: str | None
-    role: str
+    role: UserRole
     admin_password: str | None = None
 
 @asynccontextmanager
@@ -111,7 +111,7 @@ async def sync_to_1c(data: SyncData):
 @app.post("/api/register")
 async def register_user(registration_data: UserRegistration):
     try:
-        return await rq.register_new_user(registration_data.dict())
+        return await rq.register_new_user(registration_data)
     except HTTPException as e:
         logger.error(f"Ошибка при регистрации пользователя (HTTPException): {e.detail}, Status: {e.status_code}")
         raise e 

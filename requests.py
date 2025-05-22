@@ -178,7 +178,7 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
                     detail="Пользователь с таким Telegram ID уже зарегистрирован."
                 )
 
-            if registration_data.role == UserRole.ADMIN: # <-- Исправлено сравнение с Enum объектом
+            if registration_data.role == UserRole.admin: # <-- Исправлено сравнение с Enum объектом
                 admin_password = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
                 if not admin_password or registration_data.admin_password != admin_password:
                     raise Exception("Неверный пароль администратора.")
