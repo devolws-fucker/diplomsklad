@@ -163,60 +163,69 @@ async def log_sync(data):
             return {"status": "synced"}
 
 async def register_new_user(registration_data, external_session: AsyncSession = None):
+    # Определяем, используем ли внешнюю сессию (например, из FastAPI Depends)
+    # или создаем новую для этой функции.
     use_external_session = bool(external_session)
-    session = external_session if use_external_session else async_session()
+    session = external_session # Если external_session не None, то используем его
+
+    # Если внешняя сессия не предоставлена, создаем свою собственную.
+    # Это важно, так как FastAPI управляет сессиями, переданными через Depends.
+    # Если функция вызывается без Depends, она должна управлять своей сессией сама.
+    if not use_external_session:
+        session = async_session()
+
     try:
-        if not use_external_session:
-            await session.begin()
-        try:
+        # async with session.begin(): гарантирует, что транзакция будет
+        # автоматически зафиксирована при успешном выполнении блока
+        # и откачена при возникновении исключения.
+        async with session.begin():
             existing_user = await session.scalar(select(User).where(User.tg_id == registration_data.tg_id))
             if existing_user:
-                # <-- Оставляем это логирование и HTTPException
                 logger.warning(f"Пользователь с TG ID {registration_data.tg_id} уже зарегистрирован.")
                 raise HTTPException(
                     status_code=409, # 409 Conflict - ресурс уже существует
                     detail="Пользователь с таким Telegram ID уже зарегистрирован."
                 )
 
-            if registration_data.role == UserRole.admin: # <-- Исправлено сравнение с Enum объектом
+            if registration_data.role == UserRole.admin:
                 admin_password = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
                 if not admin_password or registration_data.admin_password != admin_password:
-                    raise Exception("Неверный пароль администратора.")
+                    raise HTTPException(status_code=403, detail="Неверный пароль администратора.") # Используем HTTPException
 
             new_user = User(
                 tg_id=registration_data.tg_id,
                 username=registration_data.username,
-                role=registration_data.role, # <-- Исправлено: передаем объект Enum напрямую
+                role=registration_data.role,
+                # Telegram user's first_name and last_name are not in UserRegistration model
+                # If you want to store them, you need to add them to UserRegistration and pass them from frontend
             )
             session.add(new_user)
 
-            await session.flush()
-            await session.refresh(new_user) # <-- Оставляем refresh
+            await session.flush() # Применяет изменения к сессии, но не коммитит в БД
+            await session.refresh(new_user) # Загружает свежие данные, включая ID
 
-            print(f"Зарегистрирован новый пользователь: {new_user.__dict__}")  # <-- Оставляем логирование
+            print(f"Зарегистрирован новый пользователь: {new_user.__dict__}")
 
             return {
                 "id": new_user.id,
                 "tg_id": new_user.tg_id,
                 "username": new_user.username,
-                "first_name": new_user.first_name,
-                "last_name": new_user.last_name,
+                "first_name": new_user.first_name, # Эти поля будут null, если их нет в new_user
+                "last_name": new_user.last_name,   # Нужно убедиться, что они заполняются при регистрации
                 "last_login": new_user.last_login,
                 "role": new_user.role.value,
                 "is_active": new_user.is_active,
                 "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
             }
-        except Exception as e:
-            if not use_external_session:
-                await session.rollback()
-            print(f"Ошибка при регистрации пользователя: {e}")  # <-- Оставляем логирование
-            raise # Важно: перевыбрасываем исключение, чтобы оно дошло до main.py
-        finally:
-            if not use_external_session:
-                await session.close()
-    except Exception as final_e:
-        print(f"Финальная ошибка в register_new_user: {final_e}")
-        raise
+    except Exception as e:
+        # Исключение будет перехвачено и обработано в main.py
+        # async with session.begin(): уже выполнит rollback, если произошла ошибка
+        logger.error(f"Ошибка при регистрации пользователя в requests.py: {e}")
+        raise # Важно: перевыбрасываем исключение, чтобы оно дошло до main.py
+    finally:
+        # Закрываем сессию только если мы ее создали (т.е. не использовали внешнюю)
+        if not use_external_session:
+            await session.close()
 
 def serialize_item(item: Item):
     return {

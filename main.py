@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class ScanItem(BaseModel):
     barcode: str
 
+
 class OperationData(BaseModel):
     user_id: int
     item_id: int
