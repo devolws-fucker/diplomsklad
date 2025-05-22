@@ -180,13 +180,13 @@ async def register_new_user(registration_data: dict):
 
 
         hashed_password = None
-        if registration_data["role"] == UserRole.ADMIN.value and registration_data["admin_password"]:
+        if registration_data["role"] == UserRole.ADMIN and registration_data["admin_password"]:
             hashed_password = registration_data["admin_password"] 
 
         new_user = User(
             tg_id=registration_data["tg_id"],
             username=registration_data["username"],
-            role=UserRole(registration_data["role"]), 
+            role=registration_data["role"],
             password_hash=hashed_password,
             last_login=func.now(),
             created_at=func.now()
