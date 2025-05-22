@@ -25,7 +25,7 @@ async def get_items_by_user_tg(tg_id: int):
             if not user:
                 user = User(tg_id=tg_id)
                 session.add(user)
-                await session.commit()
+                await session.flush()
                 await session.refresh(user)
 
             items = await session.scalars(select(Item).where(Item.user_id == user.id))
@@ -56,7 +56,7 @@ async def create_new_location(location_data):
                 description=location_data.description
             )
             session.add(new_location)
-            await session.commit()
+            await session.flush()
             await session.refresh(new_location)
             return {"status": "ok", "location": {"id": new_location.id, "name": new_location.name, "code": new_location.code, "description": new_location.description}}
 
@@ -81,7 +81,7 @@ async def update_existing_location(location_id: int, location_data):
             if location_data.description is not None:
                 location.description = location_data.description
 
-            await session.commit()
+            await session.flush()
             await session.refresh(location)
             return {"status": "ok", "location": {"id": location.id, "name": location.name, "code": location.code, "description": location.description}}
 
@@ -99,7 +99,7 @@ async def delete_existing_location(location_id: int):
                 raise HTTPException(status_code=400, detail="Невозможно удалить локацию, так как с ней связаны товары или операции. Сначала переместите или удалите их.")
             
             await session.delete(location)
-            await session.commit()
+            await session.flush()
             return {"status": "ok", "message": f"Локация {location_id} удалена."}
 
 async def fetch_location_by_id(location_id: int, session: AsyncSession):
@@ -146,7 +146,7 @@ async def process_operation(op):
 
             item.last_operation_id = operation.id
 
-            await session.commit()
+            await session.flush()
             return {"status": "ok", "operation_id": operation.id}
 
 async def log_sync(data):
@@ -159,7 +159,7 @@ async def log_sync(data):
                 message=data.message
             )
             session.add(log)
-            await session.commit()
+            await session.flush()
             return {"status": "synced"}
 
 async def register_new_user(registration_data, external_session: AsyncSession = None):
@@ -190,7 +190,7 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
             )
             session.add(new_user)
 
-            await session.commit()
+            await session.flush()
             await session.refresh(new_user) # <-- Оставляем refresh
 
             print(f"Зарегистрирован новый пользователь: {new_user.__dict__}")  # <-- Оставляем логирование
