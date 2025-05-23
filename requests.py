@@ -7,11 +7,21 @@ from models import (
     User, Item, Location, Operation,
     OperationType, SyncLog, UserRole
 )
-from database import async_session
+from database import async_session # Assuming database.py has async_session
 import os
 from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+# Assuming this comes from main.py's Pydantic models or a shared schema file
+# class ItemCreate(BaseModel): # You might need to import this or define it here if not shared
+#     barcode: str
+#     name: str
+#     sku: Optional[str] = None
+#     location_id: Optional[int] = None
+#     quantity: int
+#     note: Optional[str] = None
+
 
 async def fetch_user_by_tg_id(tg_id: int, session: AsyncSession):
     async with session.begin():
@@ -38,7 +48,49 @@ async def scan_or_create_item(barcode: str):
             if item:
                 return {"status": "exists", "item": serialize_item(item)}
             else:
+                # When an item is 'created' (doesn't exist yet),
+                # you return a basic item dict.
+                # The actual creation happens via the /api/items POST endpoint.
                 return {"status": "created", "item": {"barcode": barcode, "name": "Новый товар"}}
+
+# NEW FUNCTION TO CREATE AN ITEM
+async def create_item(item_data): # item_data будет экземпляром ItemCreate Pydantic модели
+    async with async_session() as session:
+        async with session.begin():
+            # Проверка на уникальность штрихкода
+            existing_item = await session.scalar(select(Item).where(Item.barcode == item_data.barcode))
+            if existing_item:
+                raise HTTPException(status_code=400, detail="Товар с таким штрихкодом уже существует.")
+
+            # Проверка наличия локации
+            if item_data.location_id:
+                location = await session.scalar(select(Location).where(Location.id == item_data.location_id))
+                if not location:
+                    raise HTTPException(status_code=400, detail="Указанная локация не найдена.")
+            else:
+                raise HTTPException(status_code=400, detail="Локация для нового товара должна быть указана.")
+
+            # Найдите внутреннего пользователя по user_tg_id, пришедшему с фронтенда
+            user_from_db = await session.scalar(select(User).where(User.tg_id == item_data.user_tg_id)) # <--- ИСПОЛЬЗУЕМ user_tg_id ИЗ ItemCreate
+            if not user_from_db:
+                raise HTTPException(status_code=400, detail="Пользователь Telegram не найден в базе данных. Пожалуйста, убедитесь, что вы зарегистрированы.")
+
+
+            new_item = Item(
+                barcode=item_data.barcode,
+                name=item_data.name,
+                sku=item_data.sku,
+                location_id=item_data.location_id,
+                quantity=item_data.quantity,
+                description=item_data.note,
+                user_id=user_from_db.id, # <--- ЭТО САМОЕ ВАЖНОЕ: Используем внутренний ID пользователя
+            )
+            session.add(new_item)
+            await session.flush()
+            await session.refresh(new_item)
+
+            return serialize_item(new_item)
+
 
 async def create_new_location(location_data):
     async with async_session() as session:
@@ -97,7 +149,7 @@ async def delete_existing_location(location_id: int):
 
             if associated_items > 0 or associated_operations > 0:
                 raise HTTPException(status_code=400, detail="Невозможно удалить локацию, так как с ней связаны товары или операции. Сначала переместите или удалите их.")
-            
+
             await session.delete(location)
             await session.flush()
             return {"status": "ok", "message": f"Локация {location_id} удалена."}
@@ -119,11 +171,15 @@ async def process_operation(op):
             user = await session.get(User, op.user_id)
             location = await session.get(Location, op.location_id)
 
-            if not item or not user or not location:
-                raise Exception("Ошибка: сущность не найдена")
+            if not item:
+                raise HTTPException(status_code=404, detail="Товар не найден.")
+            if not user:
+                raise HTTPException(status_code=404, detail="Пользователь не найден.")
+            if not location:
+                raise HTTPException(status_code=404, detail="Локация не найдена.")
 
             if op.type == "ship" and item.quantity < op.quantity:
-                raise Exception("Недостаточно товара")
+                raise HTTPException(status_code=400, detail="Недостаточно товара для отгрузки.")
 
             operation = Operation(
                 user_id=user.id,
@@ -142,11 +198,26 @@ async def process_operation(op):
             elif op.type == "inventory":
                 item.quantity = op.quantity
             elif op.type == "move":
+                # For move operation, quantity on the item doesn't change, only location
                 item.location_id = location.id
+                # If quantity is provided for move, it implies moving 'op.quantity' from current location
+                # to new location. This requires more complex logic (deduct from old, add to new)
+                # For simplicity here, assuming 'move' means moving the *entire* item record to a new location.
+                # If partial moves are intended, item.quantity needs to be handled differently (e.g., create new item record for moved quantity).
+                # The current `move` implementation in `ScanItem.vue` only takes a `location_id`, not quantity, for move.
+                # So if `quantity` is used in `OperationData` for move, it might be extraneous or imply a specific behavior.
+                # Let's assume the frontend sends quantity 1 for move and we just update location.
+                # If partial moves are desired, the logic needs to be more complex.
+                pass # Location update is already handled by item.location_id = location.id
 
-            item.last_operation_id = operation.id
+            item.last_operation_id = operation.id # Update the last operation ID
 
             await session.flush()
+            # No need to refresh item explicitly if only quantity and last_operation_id are changed
+            # These changes are reflected in the session and will be committed.
+            # Refreshing operation might be useful if you need its ID immediately before returning.
+            await session.refresh(operation)
+
             return {"status": "ok", "operation_id": operation.id}
 
 async def log_sync(data):
@@ -163,46 +234,39 @@ async def log_sync(data):
             return {"status": "synced"}
 
 async def register_new_user(registration_data, external_session: AsyncSession = None):
-    # Определяем, используем ли внешнюю сессию (например, из FastAPI Depends)
-    # или создаем новую для этой функции.
+    # Determine if we're using an external session (e.g., from FastAPI Depends)
+    # or creating a new one for this function.
     use_external_session = bool(external_session)
-    session = external_session # Если external_session не None, то используем его
+    session = external_session # If external_session is not None, use it
 
-    # Если внешняя сессия не предоставлена, создаем свою собственную.
-    # Это важно, так как FastAPI управляет сессиями, переданными через Depends.
-    # Если функция вызывается без Depends, она должна управлять своей сессией сама.
+    # If an external session is not provided, create our own.
     if not use_external_session:
         session = async_session()
 
     try:
-        # async with session.begin(): гарантирует, что транзакция будет
-        # автоматически зафиксирована при успешном выполнении блока
-        # и откачена при возникновении исключения.
-        async with session.begin():
+        async with session.begin(): # This block manages the transaction (commit/rollback)
             existing_user = await session.scalar(select(User).where(User.tg_id == registration_data.tg_id))
             if existing_user:
                 logger.warning(f"Пользователь с TG ID {registration_data.tg_id} уже зарегистрирован.")
                 raise HTTPException(
-                    status_code=409, # 409 Conflict - ресурс уже существует
+                    status_code=409, # 409 Conflict - resource already exists
                     detail="Пользователь с таким Telegram ID уже зарегистрирован."
                 )
 
             if registration_data.role == UserRole.admin:
                 admin_password = os.environ.get("ADMIN_REGISTRATION_PASSWORD")
                 if not admin_password or registration_data.admin_password != admin_password:
-                    raise HTTPException(status_code=403, detail="Неверный пароль администратора.") # Используем HTTPException
+                    raise HTTPException(status_code=403, detail="Неверный пароль администратора.")
 
             new_user = User(
                 tg_id=registration_data.tg_id,
                 username=registration_data.username,
                 role=registration_data.role,
-                # Telegram user's first_name and last_name are not in UserRegistration model
-                # If you want to store them, you need to add them to UserRegistration and pass them from frontend
             )
             session.add(new_user)
 
-            await session.flush() # Применяет изменения к сессии, но не коммитит в БД
-            await session.refresh(new_user) # Загружает свежие данные, включая ID
+            await session.flush() # Apply changes to the session, but don't commit to DB yet
+            await session.refresh(new_user) # Load fresh data, including ID
 
             print(f"Зарегистрирован новый пользователь: {new_user.__dict__}")
 
@@ -210,22 +274,19 @@ async def register_new_user(registration_data, external_session: AsyncSession = 
                 "id": new_user.id,
                 "tg_id": new_user.tg_id,
                 "username": new_user.username,
-                "first_name": new_user.first_name, # Эти поля будут null, если их нет в new_user
-                "last_name": new_user.last_name,   # Нужно убедиться, что они заполняются при регистрации
+                "first_name": new_user.first_name,
+                "last_name": new_user.last_name,
                 "last_login": new_user.last_login,
                 "role": new_user.role.value,
                 "is_active": new_user.is_active,
                 "created_at": new_user.created_at.isoformat() if new_user.created_at else None,
             }
     except Exception as e:
-        # Исключение будет перехвачено и обработано в main.py
-        # async with session.begin(): уже выполнит rollback, если произошла ошибка
         logger.error(f"Ошибка при регистрации пользователя в requests.py: {e}")
-        raise # Важно: перевыбрасываем исключение, чтобы оно дошло до main.py
+        raise # Re-raise the exception to be caught by main.py's handler
     finally:
-        # Закрываем сессию только если мы ее создали (т.е. не использовали внешнюю)
         if not use_external_session:
-            await session.close()
+            await session.close() # Close session only if we created it
 
 def serialize_item(item: Item):
     return {

@@ -3,8 +3,10 @@ from fastapi import FastAPI, HTTPException, Depends
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from models import init_db, User, UserRole
-import requests as rq
+from sqlalchemy import select, update, delete, func
+from models import init_db, User, UserRole # Ensure Item is imported if you need it here, but typically it's used in requests.py
+# Correctly aliasing requests.py functions as rq
+import requests as rq # Renamed the import to avoid confusion with the 'requests' library
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_async_session
 import os
@@ -14,9 +16,19 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Re-define Pydantic models here or import them from a shared schema file if you have one
+# Assuming they are defined in main.py for now as per your original structure
 class ScanItem(BaseModel):
     barcode: str
 
+class ItemCreate(BaseModel):
+    barcode: str
+    name: str
+    sku: Optional[str] = None
+    location_id: Optional[int] = None
+    quantity: int = 0
+    note: Optional[str] = None
+    user_tg_id: int
 
 class OperationData(BaseModel):
     user_id: int
@@ -63,9 +75,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Existing endpoint
 @app.post("/api/items/scan")
 async def scan_item(data: ScanItem):
     return await rq.scan_or_create_item(data.barcode)
+
+# NEW ENDPOINT TO CREATE AN ITEM
+@app.post("/api/items")
+async def create_item(item_data: ItemCreate):
+    """
+    Создает новый товар в базе данных.
+    """
+    try:
+        # Pass the item_data directly to the requests module function
+        new_item = await rq.create_item(item_data)
+        return {"status": "ok", "item": new_item}
+    except HTTPException as e:
+        logger.error(f"HTTPException when creating item: {e.detail}, Status: {e.status_code}")
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected error when creating item: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {e}")
+
 
 @app.get("/api/users/{tg_id}")
 async def get_user(tg_id: int, session: AsyncSession = Depends(get_async_session)):
@@ -115,7 +146,7 @@ async def register_user(registration_data: UserRegistration):
         return await rq.register_new_user(registration_data)
     except HTTPException as e:
         logger.error(f"Ошибка при регистрации пользователя (HTTPException): {e.detail}, Status: {e.status_code}")
-        raise e 
+        raise e
     except Exception as e:
         logger.error(f"Неожиданная ошибка при регистрации пользователя: {e}")
         raise HTTPException(status_code=500, detail=f"Внутренняя ошибка сервера: {e}")
