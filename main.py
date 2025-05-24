@@ -66,10 +66,19 @@ async def lifespan(app_: FastAPI):
     yield
 
 app = FastAPI(title="DiplomSklad", lifespan=lifespan)
+origins = [
+    "https://diplomsklad-ee2d3.web.app", # Ваш фронтенд на Firebase Hosting
+    "https://potential-broccoli-x5w54v7q7j9hvpwq-8000.app.github.dev", # Если фронтенд и бэкенд на одном домене, но разных портах
+    "https://web.telegram.org", # Для Telegram WebApp
+    "https://telegram.org", # Для Telegram WebApp
+    "https://*.telegram.org", # Если Telegram использует поддомены
+    "https://oauth.telegram.org", # Если используется Telegram Oauth
+    "https://potential-broccoli-x5w54v7q7j9hvpwq-8000.app.github.dev" # Добавьте ваш бэкенд URL
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

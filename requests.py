@@ -24,9 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 async def fetch_user_by_tg_id(tg_id: int, session: AsyncSession):
-    async with session.begin():
-        user = await session.scalar(select(User).where(User.tg_id == tg_id))
-        return user
+    user = await session.scalar(select(User).where(User.tg_id == tg_id))
+    return user
 
 async def get_items_by_user_tg(tg_id: int):
     async with async_session() as session:
@@ -168,7 +167,7 @@ async def process_operation(op):
     async with async_session() as session:
         async with session.begin():
             item = await session.get(Item, op.item_id)
-            user = await session.get(User, op.user_id)
+            user = await fetch_user_by_tg_id(op.user_id, session)
             location = await session.get(Location, op.location_id)
 
             if not item:
